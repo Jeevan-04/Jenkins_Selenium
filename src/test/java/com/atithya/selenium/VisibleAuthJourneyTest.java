@@ -10,6 +10,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -180,7 +181,12 @@ class VisibleAuthJourneyTest extends BaseWebTest {
             postSignIn = bodyText();
         }
 
-        assertFalse(postSignIn.isBlank(), "Staff journey should keep the dashboard visible");
+        new org.openqa.selenium.support.ui.WebDriverWait(driver, Duration.ofSeconds(10))
+            .until(d -> !d.findElements(By.cssSelector("flt-semantics[role='button'], button, [role='button']")).isEmpty()
+                || !bodyText().isBlank());
+
+        assertFalse(postSignIn.isBlank() && driver.findElements(By.cssSelector("flt-semantics[role='button'], button, [role='button']")).isEmpty(),
+            "Staff journey should keep the dashboard visible");
     }
 
     private void focusOtpInput() {

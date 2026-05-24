@@ -134,6 +134,24 @@ abstract class BaseWebTest {
         }
     }
 
+    protected void scrollDown() {
+        ((JavascriptExecutor) driver).executeScript("window.scrollBy(0, Math.max(500, window.innerHeight * 0.75));");
+        pause(350);
+    }
+
+    protected void scrollToBottom() {
+        ((JavascriptExecutor) driver).executeScript("window.scrollTo(0, document.body.scrollHeight);");
+        pause(500);
+    }
+
+    protected void tapOutsideDialog() {
+        ((JavascriptExecutor) driver).executeScript(
+                "document.elementFromPoint(Math.floor(window.innerWidth * 0.08), Math.floor(window.innerHeight * 0.08))"
+                        + ".dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));"
+        );
+        pause(500);
+    }
+
     protected void captureScreenshot(String name) {
         if (!(driver instanceof TakesScreenshot)) {
             return;
@@ -184,6 +202,16 @@ abstract class BaseWebTest {
 
     protected void clickVisibleText(String text) {
         clickFlutterButton(text);
+    }
+
+    protected boolean clickVisibleTextIfPresent(String text) {
+        try {
+            clickVisibleText(text);
+            pause(600);
+            return true;
+        } catch (RuntimeException missing) {
+            return false;
+        }
     }
 
     protected void clickTextNode(String text) {
@@ -288,6 +316,24 @@ abstract class BaseWebTest {
             ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", element);
             clickElement(element);
         }
+    }
+
+    protected void clickTopLeftBack() {
+        Boolean clicked = (Boolean) ((JavascriptExecutor) driver).executeScript(
+                "const candidates = Array.from(document.querySelectorAll('flt-semantics[role=button], [role=button], button'));"
+                        + "function label(n){return ((n.getAttribute('aria-label')||'') + ' ' + (n.getAttribute('label')||'') + ' ' + (n.innerText||n.textContent||'')).trim().toLowerCase();}"
+                        + "let target = candidates.find(n => { const r = n.getBoundingClientRect(); const l = label(n); return r.left < 180 && r.top < 180 && (l.includes('back') || l.includes('<') || l.includes('‹') || l.includes('arrow')); });"
+                        + "if (!target) target = candidates.filter(n => { const r = n.getBoundingClientRect(); return r.left < 180 && r.top < 180; }).sort((a,b)=>a.getBoundingClientRect().left-b.getBoundingClientRect().left)[0];"
+                        + "if (!target) return false;"
+                        + "target.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, view:window}));"
+                        + "target.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, cancelable:true, view:window}));"
+                        + "target.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}));"
+                        + "return true;"
+        );
+        if (!Boolean.TRUE.equals(clicked)) {
+            driver.navigate().back();
+        }
+        pause(900);
     }
 
     protected void clickByCss(String cssSelector) {
