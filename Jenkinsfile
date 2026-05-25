@@ -1,10 +1,8 @@
 pipeline {
     agent any
-    tools {
-        // Try to use a configured JDK installation named 'jdk17' in Jenkins Global Tools.
-        // If not configured, the pipeline will fall back to whatever JAVA_HOME the agent provides.
-        jdk 'jdk17'
-    }
+    // Note: we intentionally do not require a named Jenkins JDK tool here because
+    // some agents may not have a matching tool configured. The pipeline will
+    // attempt to set JAVA_HOME in the 'Prepare Environment' stage instead.
 
     options {
         timestamps()
