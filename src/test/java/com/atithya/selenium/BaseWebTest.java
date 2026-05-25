@@ -493,7 +493,7 @@ abstract class BaseWebTest {
                 captureScreenshot("canvaskit-failed");
                 throw new IllegalStateException("CanvasKit appears referenced on the page but failed to initialize within 15s. See canvaskit-failed.png in artifacts.");
             }
-        } catch (WebDriverException | RuntimeException e) {
+        } catch (RuntimeException e) {
             // best-effort: capture screenshot and continue to allow the regular wait logic to surface the error
             try { captureScreenshot("canvaskit-check-exception"); } catch (Exception ignore) {}
             System.out.println("[checkCanvasKitReadyOrFail] encountered: " + e.getMessage());
