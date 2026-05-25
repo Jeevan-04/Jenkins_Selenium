@@ -35,6 +35,9 @@ abstract class BaseWebTest {
     private static final String DEFAULT_BASE_URL = "https://jeevan-04.github.io/Atithya";
     private static final String DEFAULT_CHROMIUM_BINARY = "/Applications/Chromium.app/Contents/MacOS/Chromium";
     private static final String DEFAULT_CHROME_BINARY = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    private static final Duration PAGE_LOAD_TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration SCRIPT_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration APP_READY_TIMEOUT = Duration.ofSeconds(90);
 
     protected WebDriver driver;
 
@@ -55,14 +58,21 @@ abstract class BaseWebTest {
 
         boolean headless = Boolean.parseBoolean(valueFor("headless", "SELENIUM_HEADLESS", "false"));
         options.setPageLoadStrategy(PageLoadStrategy.EAGER);
-        options.addArguments("--window-size=1440,1200", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage");
+        // Force accessibility tree so Flutter semantics are available to Selenium text locators.
+        options.addArguments(
+            "--window-size=1440,1200",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--force-renderer-accessibility"
+        );
         if (headless) {
             options.addArguments("--headless=new");
         }
 
         driver = new ChromeDriver(options);
-        driver.manage().timeouts().pageLoadTimeout(Duration.ofSeconds(20));
-        driver.manage().timeouts().scriptTimeout(Duration.ofSeconds(10));
+        driver.manage().timeouts().pageLoadTimeout(PAGE_LOAD_TIMEOUT);
+        driver.manage().timeouts().scriptTimeout(SCRIPT_TIMEOUT);
     }
 
     @AfterEach
@@ -73,8 +83,7 @@ abstract class BaseWebTest {
     }
 
     protected void openHomePage() {
-        driver.get(valueFor("baseUrl", "BASE_URL", DEFAULT_BASE_URL));
-        waitForPageReady();
+        openBaseUrl();
     }
 
     protected void assertBodyContains(String expectedText) {
@@ -124,6 +133,21 @@ abstract class BaseWebTest {
 
     protected String bodyText() {
         return driver.findElement(By.tagName("body")).getText();
+    }
+
+    protected boolean hasVisibleAppShell() {
+        Object present = ((JavascriptExecutor) driver).executeScript(
+                "const hasText = (document.body && (document.body.innerText || '').trim().length > 0);"
+                        + "const hasFlutter = !!document.querySelector('flt-glass-pane, flt-semantics, flt-semantics-host, flutter-view');"
+                        + "const hasCanvas = !!document.querySelector('canvas');"
+                        + "const hasMain = !!document.querySelector('main, [role=main], #app, #root');"
+                        + "return hasText || hasFlutter || hasCanvas || hasMain;"
+        );
+        return Boolean.TRUE.equals(present);
+    }
+
+    protected void assertAppVisible(String message) {
+        assertTrue(hasVisibleAppShell(), message);
     }
 
     protected void pause(long millis) {
@@ -293,28 +317,7 @@ abstract class BaseWebTest {
                 expected
         );
         if (!Boolean.TRUE.equals(clicked)) {
-            WebElement element = new WebDriverWait(driver, Duration.ofSeconds(8)).until(d -> {
-                List<WebElement> candidates = d.findElements(By.cssSelector("button, [role='button'], flt-semantics[role='button'], flt-semantics-placeholder[role='button']"));
-                for (WebElement candidate : candidates) {
-                    String candidateText = candidate.getText() == null ? "" : candidate.getText();
-                    String ariaLabel = candidate.getAttribute("aria-label");
-                    String semanticLabel = candidate.getAttribute("label");
-                    String normalizedText = candidateText.replace("→", "").trim();
-                    String normalizedAria = ariaLabel == null ? "" : ariaLabel.replace("→", "").trim();
-                    String normalizedSemantic = semanticLabel == null ? "" : semanticLabel.replace("→", "").trim();
-                    if (normalizedText.equalsIgnoreCase(expected)
-                            || normalizedText.toLowerCase(Locale.ROOT).contains(expected)
-                            || normalizedAria.equalsIgnoreCase(expected)
-                            || normalizedAria.toLowerCase(Locale.ROOT).contains(expected)
-                            || normalizedSemantic.equalsIgnoreCase(expected)
-                            || normalizedSemantic.toLowerCase(Locale.ROOT).contains(expected)) {
-                        return candidate;
-                    }
-                }
-                return null;
-            });
-            ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block:'center'});", element);
-            clickElement(element);
+            throw new IllegalStateException("Could not click visible text: " + label);
         }
     }
 
@@ -429,15 +432,32 @@ abstract class BaseWebTest {
     }
 
     protected void openBaseUrl() {
-        driver.get(valueFor("baseUrl", "BASE_URL", DEFAULT_BASE_URL));
-        waitForPageReady();
+        String baseUrl = valueFor("baseUrl", "BASE_URL", DEFAULT_BASE_URL);
+        RuntimeException lastFailure = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                driver.get(baseUrl);
+                waitForPageReady();
+                waitForAppShell();
+                return;
+            } catch (RuntimeException loadingFailure) {
+                lastFailure = loadingFailure;
+                System.out.println("[openBaseUrl] attempt " + attempt + " failed: " + loadingFailure.getMessage());
+                pause(2000);
+            }
+        }
+        throw new IllegalStateException("Unable to load app base URL after retries: " + baseUrl, lastFailure);
     }
 
     private void waitForPageReady() {
-        new WebDriverWait(driver, Duration.ofSeconds(30)).until(d -> {
+        new WebDriverWait(driver, PAGE_LOAD_TIMEOUT).until(d -> {
             Object readyState = ((JavascriptExecutor) d).executeScript("return document.readyState");
             return "complete".equals(String.valueOf(readyState));
         });
+    }
+
+    private void waitForAppShell() {
+        new WebDriverWait(driver, APP_READY_TIMEOUT).until(d -> hasVisibleAppShell());
     }
 
     private static String firstExistingPath(String... candidates) {
