@@ -438,6 +438,8 @@ abstract class BaseWebTest {
             try {
                 driver.get(baseUrl);
                 waitForPageReady();
+                // check for CanvasKit runtime issues early and fail fast with artifacts
+                checkCanvasKitReadyOrFail();
                 waitForAppShell();
                 return;
             } catch (RuntimeException loadingFailure) {
@@ -447,6 +449,55 @@ abstract class BaseWebTest {
             }
         }
         throw new IllegalStateException("Unable to load app base URL after retries: " + baseUrl, lastFailure);
+    }
+
+    /**
+     * If the page includes a CanvasKit script but the CanvasKit runtime doesn't become available
+     * within a short timeout, capture a screenshot and fail with a clear message. This helps CI
+     * surface CDN / runtime loading failures early instead of producing flaky locator errors.
+     */
+    protected void checkCanvasKitReadyOrFail() {
+        try {
+            Object result = ((JavascriptExecutor) driver).executeScript(
+                    "var scripts = Array.from(document.querySelectorAll('script')).map(s=>s.src||'');"
+                            + "var includes = scripts.some(s=>/canvaskit/i.test(s));"
+                            + "var ready = !!(window.CanvasKit || window.canvasKit || window.Module || window.createCanvas);"
+                            + "return [includes, ready];"
+            );
+
+            boolean includes = false;
+            boolean ready = false;
+            if (result instanceof List) {
+                List<?> list = (List<?>) result;
+                if (list.size() >= 1) includes = Boolean.TRUE.equals(list.get(0));
+                if (list.size() >= 2) ready = Boolean.TRUE.equals(list.get(1));
+            }
+
+            if (!includes) {
+                // CanvasKit not referenced on the page -- nothing to do
+                return;
+            }
+
+            // If CanvasKit is referenced but not ready, wait a bit (up to 15s) then fail
+            int waited = 0;
+            while (!ready && waited < 15_000) {
+                pause(1000);
+                waited += 1000;
+                Object r2 = ((JavascriptExecutor) driver).executeScript(
+                        "return !!(window.CanvasKit || window.canvasKit || window.Module || window.createCanvas);"
+                );
+                ready = Boolean.TRUE.equals(r2);
+            }
+
+            if (!ready) {
+                captureScreenshot("canvaskit-failed");
+                throw new IllegalStateException("CanvasKit appears referenced on the page but failed to initialize within 15s. See canvaskit-failed.png in artifacts.");
+            }
+        } catch (WebDriverException | RuntimeException e) {
+            // best-effort: capture screenshot and continue to allow the regular wait logic to surface the error
+            try { captureScreenshot("canvaskit-check-exception"); } catch (Exception ignore) {}
+            System.out.println("[checkCanvasKitReadyOrFail] encountered: " + e.getMessage());
+        }
     }
 
     private void waitForPageReady() {
